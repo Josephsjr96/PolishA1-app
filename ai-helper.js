@@ -35,27 +35,43 @@
     let res;
     try { res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) }); }
     catch (e) { console.error("[AI] request failed (offline or CORS). url:", url, "| this page origin:", location.origin); throw new Error("NETWORK"); }
-    if (res.status === 401 || res.status === 403) throw new Error("AUTH");
-    if (res.status === 402) throw new Error("BALANCE");
-    if (res.status === 429) throw new Error("RATE");
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.ok) {
+      let detail = "";
+      try { const j = await res.json(); detail = String((j.error && (j.error.message || j.error)) || j.message || ""); } catch (e) {}
+      let code = "HTTP";
+      if (/origin not allowed/i.test(detail)) code = "ORIGIN";
+      else if (/secret is not set|not configured/i.test(detail)) code = "NOSECRET";
+      else if (res.status === 401) code = "AUTH";
+      else if (res.status === 402) code = "BALANCE";
+      else if (res.status === 429) code = "RATE";
+      const err = new Error(code); err.status = res.status; err.detail = detail;
+      console.error("[AI] HTTP", res.status, detail, "| url:", url, "| origin:", location.origin);
+      throw err;
+    }
     const data = await res.json();
     const txt = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!txt) throw new Error("EMPTY");
     return txt.trim();
   }
   const parseJSON = t => { t = t.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim(); const a = t.indexOf("{"), b = t.lastIndexOf("}"); return JSON.parse(t.slice(a, b + 1)); };
-  const errText = e => LOCKED ? ({
-    RATE: "You're asking very fast — wait a few seconds and try again.",
-    EMPTY: "The AI sent an empty answer. Try again."
-  }[e.message] || "The AI helper is unavailable right now. Please try again in a moment.") : ({
-    NOKEY: "Add your DeepSeek API key in ⚙ Settings first.",
-    AUTH: "DeepSeek rejected the key (401). Check it in ⚙ Settings.",
-    BALANCE: "Your DeepSeek account has no balance left (402).",
-    RATE: "Too many requests right now — wait a few seconds and retry.",
-    NETWORK: (cfg.proxy || PROXY_URL) ? ("Couldn't reach the AI proxy. Most likely the Worker doesn't allow this page's address. This page's origin is: " + location.origin + " — set the Worker variable ALLOWED_ORIGINS to exactly that (no path, no trailing slash), or press 🩺 Test connection.") : "Couldn't reach the AI. Either you're offline, or the browser blocked a direct call to DeepSeek (CORS). Set a proxy URL in ⚙ Settings (see deepseek-proxy-worker.js).",
-    EMPTY: "The AI sent an empty answer. Try again."
-  }[e.message] || "AI error: " + e.message);
+  /* Visitors get a friendly line plus a short reason code (so a problem can be reported); the owner
+     (open the page with #aidev) gets full instructions. */
+  const REASON = e => ({
+    NETWORK: "cannot reach the AI server — network or site not allowed",
+    ORIGIN: "this site is not in the Worker's ALLOWED_ORIGINS (needs: " + location.origin + ")",
+    NOSECRET: "the Worker has no DEEPSEEK_KEY secret",
+    AUTH: "the DeepSeek key was rejected (401)",
+    BALANCE: "the DeepSeek account has no balance (402)",
+    HTTP: "server error " + (e.status || "") + (e.detail ? ": " + e.detail.slice(0, 120) : "")
+  }[e.message] || e.message);
+  const errText = e => {
+    if (e.message === "RATE") return "You're asking very fast — wait a few seconds and try again.";
+    if (e.message === "EMPTY") return "The AI sent an empty answer. Try again.";
+    if (e.message === "NOKEY") return "Add your DeepSeek API key in ⚙ Settings first.";
+    if (LOCKED) return "The AI helper is unavailable right now (" + REASON(e) + "). Please try again later.";
+    return "Problem: " + REASON(e) + (e.message === "NETWORK" && (cfg.proxy || PROXY_URL)
+      ? ". This page's origin is " + location.origin + " — set the Worker variable ALLOWED_ORIGINS to exactly that (no path, no trailing slash), then press 🩺 Test connection." : ".");
+  };
 
   const SYS_CHECK = `You are a careful Polish teacher for an A1 learner whose first language is not English-only (keep English simple).
 You receive a Polish word or sentence the learner typed, plus what they filled in. Reply with ONE JSON object only (json):
