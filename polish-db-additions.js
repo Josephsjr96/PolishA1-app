@@ -231,47 +231,29 @@ dobrze|well|adv|Greetings
     window.PL_DB_RAW = window.PL_DB_RAW.trimEnd() + "\n" + EXTRA.trim() + "\n";
   }
 
-  /* ---------- prefill helper: send a dictionary word into My Polish ---------- */
+  /* ---------- add a dictionary word straight into My Polish ----------
+     BUG FIXED: the old version looked userData up on the window object, but userData is
+     declared with `let` in the main script, so it is not a window property -> the function
+     silently returned and nothing was ever added. We now use the shared global binding. */
   function addToMyPolish(d) {
-    if (!window.userData || !window.userData.words) return;
-    if (userData.words.some(w => w.pl.toLowerCase() === d.pl.toLowerCase())) {
-      if (typeof playSound === "function") playSound("wrong");
-      alert("Already in My Polish.");
-      return;
-    }
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-    set("f-type", "word");
-    set("f-pl", d.pl);
-    set("f-en", d.en);
-    set("f-pron", pron(d.pl));
-    const letters = brk(d.pl).map(x => `${x.l} | ${x.s} | ${x.n}`).join("\n");
-    set("f-letters", letters);
-    set("f-tip", `${d.pos || ""}${d.cat ? " · " + d.cat : ""}${d.xp ? " — " + d.xp + " = " + d.xe : ""}`.trim());
-    const gsel = document.getElementById("f-grammar");
-    if (gsel && typeof suggestGrammar === "function") {
-      const g = suggestGrammar(d.pl);
-      if (g) gsel.value = g.id;
-    }
-    /* mark fields as user-edited so the smart helper leaves them alone */
-    ["f-pron", "f-en", "f-letters", "f-grammar"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el.dataset) el.dataset.userEdited = "1";
+    if (typeof userData === "undefined" || !userData || !userData.words) return "error";
+    if (userData.words.some(w => (w.pl || "").toLowerCase() === d.pl.toLowerCase())) return "dupe";
+    const tip = `${d.pos || ""}${d.cat ? " · " + d.cat : ""}${d.xp ? " — " + d.xp + " = " + d.xe : ""}`.trim();
+    let g = null;
+    try { g = typeof suggestGrammar === "function" ? suggestGrammar(d.pl) : null; } catch (e) {}
+    userData.words.push({
+      id: uid(),
+      type: d.pl.trim().split(/\s+/).length > 2 ? "sentence" : "word",
+      pl: d.pl, en: d.en,
+      pron: pron(d.pl),
+      letters: brk(d.pl),
+      tip: tip || "From the dictionary.",
+      grammar: g ? g.id : null
     });
-    if (typeof toggleFormType === "function") toggleFormType();
-
-    /* jump to My Polish tab */
-    const userTab = document.querySelector('.tab[data-tabid="user"]');
-    if (userTab) userTab.click();
-
-    /* scroll the form into view and flash it */
-    const form = document.querySelector("#user .add-form");
-    if (form) {
-      form.scrollIntoView({ behavior: "smooth", block: "start" });
-      form.style.transition = "box-shadow .3s";
-      form.style.boxShadow = "0 0 0 2px var(--user)";
-      setTimeout(() => { form.style.boxShadow = ""; }, 1200);
-    }
-    if (typeof playSound === "function") playSound("points");
+    saveUserData();
+    renderUser();
+    if (typeof playSound === "function") { try { playSound("points"); } catch (e) {} }
+    return "added";
   }
   window.addDictToMyPolish = addToMyPolish;
 
@@ -377,7 +359,9 @@ dobrze|well|adv|Greetings
           }, false);
         }
       } else if (b.dataset.a === "add") {
-        addToMyPolish(d);
+        const r = addToMyPolish(d);
+        b.textContent = r === "added" ? "✓ Added to My Polish" : r === "dupe" ? "✓ Already in My Polish" : "⚠ Could not add";
+        b.disabled = r !== "error";
       }
     });
   }
