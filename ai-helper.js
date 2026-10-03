@@ -11,7 +11,8 @@
   /* ===== PUBLISHING: paste your Cloudflare Worker URL here (it is NOT a secret). =====
      With this set, visitors just chat — no key, no settings. The real DeepSeek key lives only
      inside the Worker. Add #aidev to the page URL to reveal the settings for your own testing. */
-  const PROXY_URL = "https://flat-waterfall-436c.josephsanjari1996.workers.dev";
+  const PROXY_URL = (window.PLCFG && PLCFG.WORKER_URL) || "https://flat-waterfall-436c.josephsanjari1996.workers.dev";
+  const AUTH = !!(window.PLAUTH && PLAUTH.enabled);
   const LOCKED = !!PROXY_URL && location.hash !== "#aidev";
   const CFG_KEY = "pl_ai_cfg_v1";
   const DEFAULTS = { key: "", model: "deepseek-chat", base: "https://api.deepseek.com", proxy: "" };
@@ -30,6 +31,7 @@
     const url = proxy ? proxy : cfg.base.replace(/\/$/, "") + "/chat/completions";
     const headers = { "Content-Type": "application/json" };
     if (cfg.key && !PROXY_URL) headers.Authorization = "Bearer " + cfg.key;
+    if (AUTH) { const t = await PLAUTH.token(); if (!t) throw new Error("LOGIN"); headers.Authorization = "Bearer " + t; }
     const body = { model: cfg.model || DEFAULTS.model, messages, temperature: opts.json ? 0.2 : 0.5, max_tokens: opts.max || 700 };
     if (opts.json) body.response_format = { type: "json_object" };
     let res;
@@ -39,12 +41,16 @@
       let detail = "";
       try { const j = await res.json(); detail = String((j.error && (j.error.message || j.error)) || j.message || ""); } catch (e) {}
       let code = "HTTP";
-      if (/origin not allowed/i.test(detail)) code = "ORIGIN";
+      if (/login required/i.test(detail)) code = "LOGIN";
+      else if (/subscription required/i.test(detail)) code = "SUBSCRIBE";
+      else if (/daily limit/i.test(detail)) code = "LIMIT";
+      else if (/origin not allowed/i.test(detail)) code = "ORIGIN";
       else if (/secret is not set|not configured/i.test(detail)) code = "NOSECRET";
       else if (res.status === 401) code = "AUTH";
       else if (res.status === 402) code = "BALANCE";
       else if (res.status === 429) code = "RATE";
       const err = new Error(code); err.status = res.status; err.detail = detail;
+      if (AUTH && (code === "LOGIN" || code === "SUBSCRIBE")) PLAUTH.refreshSub();
       console.error("[AI] HTTP", res.status, detail, "| url:", url, "| origin:", location.origin);
       throw err;
     }
@@ -65,6 +71,9 @@
     HTTP: "server error " + (e.status || "") + (e.detail ? ": " + e.detail.slice(0, 120) : "")
   }[e.message] || e.message);
   const errText = e => {
+    if (e.message === "LOGIN") return "Please log in to use the AI helper.";
+    if (e.message === "SUBSCRIBE") return "An active subscription is needed to use the AI helper.";
+    if (e.message === "LIMIT") return "You've reached today's AI limit. It resets at midnight (UTC).";
     if (e.message === "RATE") return "You're asking very fast — wait a few seconds and try again.";
     if (e.message === "EMPTY") return "The AI sent an empty answer. Try again.";
     if (e.message === "NOKEY") return "Add your DeepSeek API key in ⚙ Settings first.";
@@ -115,6 +124,8 @@ When you give Polish, add an easy pronunciation in brackets like (dzen-KOO-yeh) 
   box.innerHTML = `
     <h3>🤖 AI Assistant <span class="smart-badge" id="ai-state"></span></h3>
     <div class="ai-sub">Checks what you type in the form below, reviews your saved words, and answers questions about Polish.</div>
+    <div id="ai-gate"></div>
+    <div id="ai-tools">
     <div class="ai-row">
       <button class="ai-btn pri" id="ai-check">✨ Check my entry</button>
       <button class="ai-btn" id="ai-review">🔍 Review my words</button>
@@ -129,9 +140,11 @@ When you give Polish, add an easy pronunciation in brackets like (dzen-KOO-yeh) 
     </div>
     <div id="ai-out"></div>
     <div class="ai-log" id="ai-log"></div>
-    <div class="ai-in"><input id="ai-q" placeholder="Ask: why is it 'kawę' not 'kawa'?"><button class="ai-btn pri" id="ai-send">Ask</button></div>`;
+    <div class="ai-in"><input id="ai-q" placeholder="Ask: why is it 'kawę' not 'kawa'?"><button class="ai-btn pri" id="ai-send">Ask</button></div>
+    </div>`;
   const form = $("#user .add-form");
   form.parentNode.insertBefore(box, form);
+  if (AUTH) PLAUTH.mount($("#ai-gate"), $("#ai-tools"));
 
   if (LOCKED) { $("#ai-cfgbtn").style.display = "none"; $("#ai-set").remove(); }
   const state = () => { const s = $("#ai-state"); s.textContent = ready() ? "🟢 ready" : "🔴 no key"; s.classList.toggle("off", !ready()); };
@@ -261,5 +274,5 @@ When you give Polish, add an easy pronunciation in brackets like (dzen-KOO-yeh) 
   }
   $("#ai-send").onclick = send;
   $("#ai-q").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
-  window.PLAI = { ask, ready };
+  window.PLAI = { ask, ready, errText };
 })();
