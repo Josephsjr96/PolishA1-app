@@ -40,6 +40,72 @@
   .dc-select{width:100%;padding:11px;border-radius:10px;border:1px solid #39404f;background:var(--card2);color:var(--text);font-size:.9rem;margin-top:8px}`;
   document.head.appendChild(css);
 
+  /* UI polish: keep the existing app architecture, but make navigation calmer,
+     touch targets clearer, and motion responsive to user preferences. */
+  css.textContent += \`
+    body { transition: background-color .25s ease, color .25s ease; }
+    .panel.active { animation: polishPanelIn .24s cubic-bezier(.2,.75,.25,1); }
+    @keyframes polishPanelIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #subnav {
+      position: sticky;
+      top: 0;
+      z-index: 60;
+      padding: 4px 0 10px;
+      background: linear-gradient(var(--bg) 76%, transparent);
+    }
+    #subnav button, #botnav button, .tab, button, input, select {
+      -webkit-tap-highlight-color: transparent;
+    }
+    #subnav button, #botnav button {
+      transition: color .18s ease, background-color .18s ease, border-color .18s ease,
+                  transform .18s ease, box-shadow .18s ease;
+    }
+    #subnav button:hover, #subnav button:focus-visible,
+    #botnav button:hover, #botnav button:focus-visible {
+      transform: translateY(-1px);
+    }
+    #subnav button.on, #botnav button.on {
+      box-shadow: 0 5px 18px rgba(220,20,60,.18);
+    }
+    button:focus-visible, input:focus-visible, select:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid rgba(127,180,255,.8);
+      outline-offset: 2px;
+    }
+    .em-box, .dc-card, .convo, .lesson, .word, .topic-banner {
+      transition: border-color .2s ease, background-color .2s ease,
+                  transform .2s ease, box-shadow .2s ease;
+    }
+    .em-box:hover, .dc-card:hover, .lesson:hover, .word:hover {
+      border-color: rgba(255,255,255,.16);
+      box-shadow: 0 10px 28px rgba(0,0,0,.14);
+    }
+    .em-in, .form-actions, .dc-act { align-items: stretch; }
+    .em-in input, .dc-in, .dc-select { min-height: 44px; }
+    .em-go, .btn, .dc-act button { min-height: 42px; }
+    @media (max-width: 520px) {
+      body { padding-left: 12px; padding-right: 12px; }
+      #subnav { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+      #subnav::-webkit-scrollbar { display: none; }
+      #subnav button { flex: 0 0 auto; }
+      .em-in { flex-direction: column; }
+      .em-go { min-height: 44px; }
+      .dc-act button { flex: 1 1 auto; min-height: 40px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  \`;
+
+
   function init() {
     const strip = document.querySelector(".tabs");
     if (!strip || document.getElementById("botnav")) return;
